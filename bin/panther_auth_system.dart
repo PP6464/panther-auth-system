@@ -130,11 +130,125 @@ void main(List<String> arguments) async {
     if ((request.url.queryParameters["developerName"] as String).length > 25) return Response.forbidden("Developer name must be a maximum of 25 characters");
     if (checkEmpty(request.url.queryParameters["email"])) return Response.forbidden("Developer email must be provided");
     if (checkEmpty(request.url.queryParameters["password"])) return Response.forbidden("Developer password must be provided");
+    if (request.url.queryParameters["password"].toString().length < 10) return Response.forbidden("Password must be longer than 9 characters");
 
     Results result = await conn.query(
       "insert into developers(developerName, email, passwordHash) values(?, ?, ?)",
       [request.url.queryParameters["developerName"], request.url.queryParameters["email"], sha512256.convert(request.url.queryParameters["password"].toString().codeUnits).toString],
     );
+    await conn.query(
+      "update developers set developerIDHash = ? where developerID = ?",
+      [sha512256.convert(result.insertId!.toString().codeUnits).toString(), result.insertId!],
+    );
+    return Response.ok("Developer with id ${sha512256.convert(result.insertId!.toString().codeUnits).toString()} successfully created");
+  });
+
+  app.put("users/new", (Request request) async {
+    if (checkEmpty(request.url.queryParameters["displayName"])) return Response.forbidden("Display name is required");
+    if (checkEmpty(request.url.queryParameters["email"])) return Response.forbidden("Email is required");
+    if (checkEmpty(request.url.queryParameters["password"])) return Response.forbidden("Password is required");
+    if (checkEmpty(request.url.queryParameters["projectID"])) return Response.forbidden("Project ID is required");
+    if (request.url.queryParameters["password"].toString().length < 10) return Response.forbidden("Password must be longer than 9 characters");
+
+    Results result = await conn.query(
+      "insert into endusers(displayName, email, passwordHash) values(?, ?, ?)",
+      [request.url.queryParameters["displayName"], request.url.queryParameters["email"], sha512256.convert(request.url.queryParameters["password"].toString().codeUnits).toString],
+    );
+    await conn.query(
+      "update endusers set userIDHash = ? where userID = ?",
+      [sha512256.convert(result.insertId!.toString().codeUnits).toString(), result.insertId!],
+    );
+    return Response.ok({"id": sha512256.convert(result.insertId!.toString().codeUnits).toString()}.toString());
+  });
+
+  app.post("projects/<id>", (Request request, String id) async {
+    if (!alphanumeric.hasMatch(id)) return Response.forbidden("Id $id is not valid : must be alphanumeric characters only");
+    if (checkEmpty(request.url.queryParameters["projectName"])) return Response.forbidden("New project name required");
+    if (checkEmpty(request.url.queryParameters["developerID"])) return Response.forbidden("Project owner id required");
+    if (checkEmpty(request.url.queryParameters["password"])) return Response.forbidden("Project owner password required");
+
+    Results ownerResults = await conn.query(
+      "select * from developers where developerIDHash = ? and passwordHash = ?",
+      [
+        request.url.queryParameters["developerID"],
+        sha512256.convert(request.url.queryParameters["password"].toString().codeUnits).toString(),
+      ],
+    );
+    if (ownerResults.isEmpty) return Response.forbidden("Project owner details incorrect");
+
+    await conn.query("update projects set projectName = ? where projectIDHash = ?", [request.url.queryParameters["projectName"], id]);
+    return Response.ok("Project with id $id successfully updated");
+  });
+
+  app.post("users/<id>", (Request request, String id) async {
+    if (!alphanumeric.hasMatch(id)) return Response.forbidden("Id $id is not valid : must be alphanumeric characters only");
+    if (checkEmpty(request.url.queryParameters["email"])) return Response.forbidden("Email is required");
+    if (checkEmpty(request.url.queryParameters["displayName"])) return Response.forbidden("Display name not provided");
+    if (checkEmpty(request.url.queryParameters["password"])) return Response.forbidden("Password is required");
+    if (request.url.queryParameters["password"].toString().length < 10) return Response.forbidden("Password must be longer than 9 characters");
+
+    await conn.query(
+      "update endusers set email = ?, displayName = ?, passwordHash = ? where userIDHash = ?",
+      [
+        request.url.queryParameters["email"],
+        request.url.queryParameters["displayName"],
+        sha512256.convert(request.url.queryParameters["password"].toString().codeUnits).toString(),
+        id,
+      ],
+    );
+    return Response.ok("User with id $id successfully updated");
+  });
+
+  app.post("/developers/<id>", (Request request, String id) async {
+    if (!alphanumeric.hasMatch(id)) return Response.forbidden("Id $id is not valid : must be alphanumeric characters only");
+    if (checkEmpty(request.url.queryParameters["developerName"])) return Response.forbidden("Developer name is required");
+    if (checkEmpty(request.url.queryParameters["email"])) return Response.forbidden("Email is required");
+    if (checkEmpty(request.url.queryParameters["password"])) return Response.forbidden("Password is required");
+
+    await conn.query(
+      "update developers set email = ?, displayName = ?, passwordHash = ? where developerIDHash = ?",
+      [
+        request.url.queryParameters["email"],
+        request.url.queryParameters["displayName"],
+        sha512256.convert(request.url.queryParameters["password"].toString().codeUnits).toString(),
+        id,
+      ],
+    );
+    return Response.ok("Developer with id $id updated successfully");
+  });
+
+  app.get("authenticate/user/<id>", (Request request, String id) async {
+    if (!alphanumeric.hasMatch(id)) return Response.forbidden("Id $id is not valid : must be alphanumeric characters only");
+    if (checkEmpty(request.url.queryParameters["password"])) return Response.forbidden("Password is required");
+
+    Results authResult = await conn.query("select * from endusers where userIDHash = ?", [id]);
+    if (authResult.isEmpty) {
+      return Response.forbidden("User details incorrect");
+    } else {
+      return Response.ok({
+        "userID": id,
+        "displayName": authResult.first.fields["displayName"],
+        "password": request.url.queryParameters["password"],
+        "email": authResult.first.fields["email"],
+      }.toString());
+    }
+  });
+
+  app.get("authenticate/developer/<id>", (Request request, String id) async {
+    if (!alphanumeric.hasMatch(id)) return Response.forbidden("Id $id is not valid : must be alphanumeric characters only");
+    if (checkEmpty(request.url.queryParameters["password"])) return Response.forbidden("Password is required");
+
+    Results authResult = await conn.query("select * from developers where userIDHash = ?", [id]);
+    if (authResult.isEmpty) {
+      return Response.forbidden("User details incorrect");
+    } else {
+      return Response.ok({
+        "developerID": id,
+        "developerName": authResult.first.fields["developerName"],
+        "password": request.url.queryParameters["password"],
+        "email": authResult.first.fields["email"],
+      }.toString());
+    }
   });
 
   // Serve the application
