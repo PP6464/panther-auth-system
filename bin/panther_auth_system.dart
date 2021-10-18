@@ -10,7 +10,7 @@ import 'package:shelf_router/shelf_router.dart';
 import 'constants.dart';
 
 String? portEnv = Platform.environment['port'];
-String host = portEnv == null ? 'localhost' : '0.0.0.0';
+String host = '0.0.0.0';
 
 void main(List<String> arguments) async {
   // Configuration
