@@ -111,48 +111,63 @@ void main(List<String> arguments) async {
   app.put("/projects/new", (Request request) async {
     if (checkEmpty(request.url.queryParameters["projectName"])) return Response.forbidden("Project name is required");
     if (checkEmpty(request.url.queryParameters["developerID"])) return Response.forbidden("Developer ID is required");
+    if (!urlSafe.hasMatch(request.url.queryParameters["projectName"].toString())) return Response.forbidden("Project name must contain alphanumeric characters or -, _, @, .");
+    if (!alphanumeric.hasMatch(request.url.queryParameters["developerID"].toString())) return Response.forbidden("Project name must contain only alphanumeric characters");
 
     Results developer = await conn.query("select * from developers where developerIDHash = ?", [request.url.queryParameters["developerID"]]);
 
     Results result = await conn.query(
       "insert into projects(projectName, developerID) values(?, ?)",
-      [request.url.queryParameters["projectName"], developer.first.fields["id"]],
+      [request.url.queryParameters["projectName"], developer.first.fields["developerID"]],
     );
     await conn.query(
       "update projects set projectIDHash = ? where projectID = ?",
       [sha512256.convert(result.insertId!.toString().codeUnits).toString(), result.insertId!],
     );
-    return Response.ok("Project with id ${sha512256.convert(result.insertId!.toString().codeUnits).toString()} created");
+    return Response.ok({"id": sha512256.convert(result.insertId!.toString().codeUnits).toString()}.toString());
   });
 
   app.put("/developers/new", (Request request) async {
     if (checkEmpty(request.url.queryParameters["developerName"])) return Response.forbidden("Developer name required");
-    if ((request.url.queryParameters["developerName"] as String).length > 25) return Response.forbidden("Developer name must be a maximum of 25 characters");
+    if (Uri.decodeComponent(request.url.queryParameters["developerName"] as String).length > 25) return Response.forbidden("Developer name must be a maximum of 25 characters");
     if (checkEmpty(request.url.queryParameters["email"])) return Response.forbidden("Developer email must be provided");
     if (checkEmpty(request.url.queryParameters["password"])) return Response.forbidden("Developer password must be provided");
     if (request.url.queryParameters["password"].toString().length < 10) return Response.forbidden("Password must be longer than 9 characters");
+    if (!nameSafe.hasMatch(Uri.decodeComponent(request.url.queryParameters["developerName"].toString()))) return Response.forbidden("Developer name must contain only alphanumeric characters or -, _, @, . or space");
+    if (!urlSafe.hasMatch(Uri.decodeComponent(request.url.queryParameters["email"].toString()))) return Response.forbidden("Email must contain only alphanumeric characters or -, _, @, .");
+    if (!urlSafe.hasMatch(Uri.decodeComponent(request.url.queryParameters["password"].toString()))) return Response.forbidden("Password must contain only alphanumeric characters or -, _, @, .");
 
     Results result = await conn.query(
       "insert into developers(developerName, email, passwordHash) values(?, ?, ?)",
-      [request.url.queryParameters["developerName"], request.url.queryParameters["email"], sha512256.convert(request.url.queryParameters["password"].toString().codeUnits).toString],
+      [
+        Uri.decodeComponent(request.url.queryParameters["developerName"].toString()),
+        Uri.decodeComponent(request.url.queryParameters["email"].toString()),
+        sha512256.convert(Uri.decodeComponent(request.url.queryParameters["password"].toString()).codeUnits).toString(),
+      ],
     );
     await conn.query(
       "update developers set developerIDHash = ? where developerID = ?",
       [sha512256.convert(result.insertId!.toString().codeUnits).toString(), result.insertId!],
     );
-    return Response.ok("Developer with id ${sha512256.convert(result.insertId!.toString().codeUnits).toString()} successfully created");
+    return Response.ok({"id": sha512256.convert(result.insertId!.toString().codeUnits).toString()}.toString());
   });
 
-  app.put("users/new", (Request request) async {
+  app.put("/users/new", (Request request) async {
     if (checkEmpty(request.url.queryParameters["displayName"])) return Response.forbidden("Display name is required");
     if (checkEmpty(request.url.queryParameters["email"])) return Response.forbidden("Email is required");
     if (checkEmpty(request.url.queryParameters["password"])) return Response.forbidden("Password is required");
     if (checkEmpty(request.url.queryParameters["projectID"])) return Response.forbidden("Project ID is required");
-    if (request.url.queryParameters["password"].toString().length < 10) return Response.forbidden("Password must be longer than 9 characters");
+    if (Uri.decodeComponent(request.url.queryParameters["password"].toString()).length < 10) return Response.forbidden("Password must be longer than 9 characters");
+    if (!nameSafe.hasMatch(Uri.decodeComponent(request.url.queryParameters["displayName"].toString()))) return Response.forbidden("Display name must contain only alphanumeric characters or -, _, @, . or space");
+    if (!urlSafe.hasMatch(Uri.decodeComponent(request.url.queryParameters["email"].toString()))) return Response.forbidden("Email must contain only alphanumeric characters or -, _, @, .");
+    if (!alphanumeric.hasMatch(request.url.queryParameters["projectID"].toString())) return Response.forbidden("Project ID must contain only alphanumeric characters");
+    if (!urlSafe.hasMatch(Uri.decodeComponent(request.url.queryParameters["password"].toString()))) return Response.forbidden("Password must contain only alphanumeric characters or -, _, @, .");
+
+    Results projectResult = await conn.query("select * from projects where projectIDHash = ?", [request.url.queryParameters["projectID"]]);
 
     Results result = await conn.query(
-      "insert into endusers(displayName, email, passwordHash) values(?, ?, ?)",
-      [request.url.queryParameters["displayName"], request.url.queryParameters["email"], sha512256.convert(request.url.queryParameters["password"].toString().codeUnits).toString],
+      "insert into endusers(projectID, displayName, email, passwordHash) values(?, ?, ?, ?)",
+      [projectResult.first.fields["projectID"], Uri.decodeComponent(request.url.queryParameters["displayName"].toString()), Uri.decodeComponent(request.url.queryParameters["email"].toString()), sha512256.convert(Uri.decodeComponent(request.url.queryParameters["password"].toString()).codeUnits).toString()],
     );
     await conn.query(
       "update endusers set userIDHash = ? where userID = ?",
@@ -161,11 +176,16 @@ void main(List<String> arguments) async {
     return Response.ok({"id": sha512256.convert(result.insertId!.toString().codeUnits).toString()}.toString());
   });
 
-  app.post("projects/<id>", (Request request, String id) async {
+  app.post("/projects/<id>", (Request request, String id) async {
     if (!alphanumeric.hasMatch(id)) return Response.forbidden("Id $id is not valid : must be alphanumeric characters only");
     if (checkEmpty(request.url.queryParameters["projectName"])) return Response.forbidden("New project name required");
     if (checkEmpty(request.url.queryParameters["developerID"])) return Response.forbidden("Project owner id required");
     if (checkEmpty(request.url.queryParameters["password"])) return Response.forbidden("Project owner password required");
+    if (Uri.decodeComponent(request.url.queryParameters["password"].toString()).length < 10) return Response.forbidden("Password must be longer than 9 characters");
+    if (!urlSafe.hasMatch(request.url.queryParameters["projectName"].toString())) return Response.forbidden("Project name must contain only alphanumeric characters or -, _, @, .");
+    if (!alphanumeric.hasMatch(request.url.queryParameters["developerID"].toString())) return Response.forbidden("Developer ID must contain only alphanumeric characters");
+    if (!urlSafe.hasMatch(Uri.decodeComponent(request.url.queryParameters["password"].toString()))) return Response.forbidden("Password must contain only alphanumeric characters or -, _, @, .");
+
 
     Results ownerResults = await conn.query(
       "select * from developers where developerIDHash = ? and passwordHash = ?",
@@ -180,19 +200,23 @@ void main(List<String> arguments) async {
     return Response.ok("Project with id $id successfully updated");
   });
 
-  app.post("users/<id>", (Request request, String id) async {
+  app.post("/users/<id>", (Request request, String id) async {
     if (!alphanumeric.hasMatch(id)) return Response.forbidden("Id $id is not valid : must be alphanumeric characters only");
     if (checkEmpty(request.url.queryParameters["email"])) return Response.forbidden("Email is required");
     if (checkEmpty(request.url.queryParameters["displayName"])) return Response.forbidden("Display name not provided");
     if (checkEmpty(request.url.queryParameters["password"])) return Response.forbidden("Password is required");
-    if (request.url.queryParameters["password"].toString().length < 10) return Response.forbidden("Password must be longer than 9 characters");
+    if (Uri.decodeComponent(request.url.queryParameters["password"].toString()).length < 10) return Response.forbidden("Password must be longer than 9 characters");
+    if (!nameSafe.hasMatch(Uri.decodeComponent(request.url.queryParameters["displayName"].toString()))) return Response.forbidden("Display name must contain only alphanumeric characters or -, _, @, . or space");
+    if (!urlSafe.hasMatch(Uri.decodeComponent(request.url.queryParameters["email"].toString()))) return Response.forbidden("Email must contain only alphanumeric characters or -, _, @, .");
+    if (!urlSafe.hasMatch(Uri.decodeComponent(request.url.queryParameters["password"].toString()))) return Response.forbidden("Password must contain only alphanumeric characters or -, _, @, .");
+
 
     await conn.query(
       "update endusers set email = ?, displayName = ?, passwordHash = ? where userIDHash = ?",
       [
-        request.url.queryParameters["email"],
-        request.url.queryParameters["displayName"],
-        sha512256.convert(request.url.queryParameters["password"].toString().codeUnits).toString(),
+        Uri.decodeComponent(request.url.queryParameters["email"].toString()),
+        Uri.decodeComponent(request.url.queryParameters["displayName"].toString()),
+        sha512256.convert(Uri.decodeComponent(request.url.queryParameters["password"].toString()).codeUnits).toString(),
         id,
       ],
     );
@@ -204,22 +228,27 @@ void main(List<String> arguments) async {
     if (checkEmpty(request.url.queryParameters["developerName"])) return Response.forbidden("Developer name is required");
     if (checkEmpty(request.url.queryParameters["email"])) return Response.forbidden("Email is required");
     if (checkEmpty(request.url.queryParameters["password"])) return Response.forbidden("Password is required");
+    if (!nameSafe.hasMatch(Uri.decodeComponent(request.url.queryParameters["developerName"].toString()))) return Response.forbidden("Developer name must contain only alphanumeric characters or -, _, @, . or space");
+    if (!urlSafe.hasMatch(Uri.decodeComponent(request.url.queryParameters["email"].toString()))) return Response.forbidden("Email must contain only alphanumeric characters or -, _, @, .");
+    if (!urlSafe.hasMatch(Uri.decodeComponent(request.url.queryParameters["password"].toString()))) return Response.forbidden("Password must contain only alphanumeric characters or -, _, @, .");
+
 
     await conn.query(
       "update developers set email = ?, displayName = ?, passwordHash = ? where developerIDHash = ?",
       [
-        request.url.queryParameters["email"],
+        Uri.decodeComponent(request.url.queryParameters["email"].toString()),
         request.url.queryParameters["displayName"],
-        sha512256.convert(request.url.queryParameters["password"].toString().codeUnits).toString(),
+        sha512256.convert(Uri.decodeComponent(request.url.queryParameters["password"].toString()).codeUnits).toString(),
         id,
       ],
     );
     return Response.ok("Developer with id $id updated successfully");
   });
 
-  app.get("authenticate/user/<id>", (Request request, String id) async {
+  app.get("/authenticate/user/<id>", (Request request, String id) async {
     if (!alphanumeric.hasMatch(id)) return Response.forbidden("Id $id is not valid : must be alphanumeric characters only");
     if (checkEmpty(request.url.queryParameters["password"])) return Response.forbidden("Password is required");
+    if (!urlSafe.hasMatch(Uri.decodeComponent(request.url.queryParameters["password"].toString()))) return Response.forbidden("Password must contain only alphanumeric characters or -, _, @, .");
 
     Results authResult = await conn.query("select * from endusers where userIDHash = ?", [id]);
     if (authResult.isEmpty) {
@@ -228,15 +257,16 @@ void main(List<String> arguments) async {
       return Response.ok({
         "userID": id,
         "displayName": authResult.first.fields["displayName"],
-        "password": request.url.queryParameters["password"],
+        "password": Uri.decodeComponent(request.url.queryParameters["password"].toString()),
         "email": authResult.first.fields["email"],
       }.toString());
     }
   });
 
-  app.get("authenticate/developer/<id>", (Request request, String id) async {
+  app.get("/authenticate/developer/<id>", (Request request, String id) async {
     if (!alphanumeric.hasMatch(id)) return Response.forbidden("Id $id is not valid : must be alphanumeric characters only");
     if (checkEmpty(request.url.queryParameters["password"])) return Response.forbidden("Password is required");
+    if (!urlSafe.hasMatch(Uri.decodeComponent(request.url.queryParameters["password"].toString()))) return Response.forbidden("Password must contain only alphanumeric characters or -, _, @, .");
 
     Results authResult = await conn.query("select * from developers where userIDHash = ?", [id]);
     if (authResult.isEmpty) {
@@ -245,7 +275,7 @@ void main(List<String> arguments) async {
       return Response.ok({
         "developerID": id,
         "developerName": authResult.first.fields["developerName"],
-        "password": request.url.queryParameters["password"],
+        "password": Uri.decodeComponent(request.url.queryParameters["password"].toString()),
         "email": authResult.first.fields["email"],
       }.toString());
     }
