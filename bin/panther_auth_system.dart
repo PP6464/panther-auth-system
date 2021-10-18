@@ -10,7 +10,7 @@ import 'package:shelf_router/shelf_router.dart';
 import 'constants.dart';
 
 String? portEnv = Platform.environment['port'];
-String host = '0.0.0.0';
+String host = portEnv == null ? 'localhost' : '0.0.0.0';
 
 void main(List<String> arguments) async {
   // Configuration
@@ -19,8 +19,12 @@ void main(List<String> arguments) async {
 
   final String portStr = result['port'] ?? portEnv ?? '8080';
   final int? port = int.tryParse(portStr);
-  assert(port != null);
-  port!;
+  if (port == null) {
+    stdout.writeln('Could not parse port value "$portStr" into a number.');
+    // 64: command line usage error
+    exitCode = 64;
+    return;
+  }
 
   final Router app = Router();
 
