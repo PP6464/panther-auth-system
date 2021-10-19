@@ -9,13 +9,13 @@ import 'package:shelf_router/shelf_router.dart';
 
 import 'constants.dart';
 
-String? portEnv = Platform.environment['port'];
-String host = portEnv == null ? 'localhost' : '0.0.0.0';
-
 void main(List<String> arguments) async {
   // Configuration
   final ArgParser parser = ArgParser()..addOption('port', abbr: 'p');
   final ArgResults result = parser.parse(arguments);
+
+  String? portEnv = Platform.environment['port'];
+  String host = portEnv == null ? 'localhost' : '0.0.0.0';
 
   final String portStr = result['port'] ?? portEnv ?? '8080';
   final int? port = int.tryParse(portStr);
