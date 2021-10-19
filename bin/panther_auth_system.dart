@@ -17,7 +17,7 @@ void main(List<String> arguments) async {
   String? portEnv = Platform.environment['port'];
   String host = portEnv == null ? 'localhost' : '0.0.0.0';
 
-  final String portStr = result['port'] ?? portEnv ?? '8080';
+  final String portStr = portEnv ?? result['port'] ?? '8080';
   final int? port = int.tryParse(portStr);
   if (port == null) {
     stdout.writeln('Could not parse port value "$portStr" into a number.');
